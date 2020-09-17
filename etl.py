@@ -10,37 +10,11 @@ import numpy as np
 
 from kimi_common.database.client.clients import Clients
 from kimi_common.utils.pandas.data_convert import convert_datetime_to_date
-from kimi_common.utils.pd_utils import apply_if_col_not_exists
+from kimi_common.utils.pd_utils import apply_col, group_agg
 
 from conf.type_mapper import (get_device_type_name,
                               get_ext1_name, get_ext2_name)
 from conf.db import db_params
-
-def simple_group_agg(df,col,label_col='label',agg_funcs=['count','mean'],by='mean'):
-    if isinstance(col,str):
-        col = [col]
-    if isinstance(agg_funcs,dict):
-        grouped_label = df.groupby(col)
-        grouped_df = grouped_label.agg(**agg_funcs)
-    else:
-        grouped_label = df.groupby(col)[label_col]
-        grouped_df = grouped_label.agg(agg_funcs)
-    #grouped_df = grouped_label.agg(agg_funcs)
-    columns = {}
-  
-
-    if by is not None:
-        ret = grouped_df.sort_values(by=by,ascending=False)
-    else:
-        ret = grouped_df.sort_index()
-    
-    for func_name in  agg_funcs:
-        if isinstance(col,list):
-            col = '_'.join(col)
-        columns[func_name] = f'{col}_{label_col}_{func_name}'
-    ret = ret.rename(columns=columns)
-    return ret 
-
 
 
 def get_label_wide(client):
@@ -52,7 +26,7 @@ def get_label_wide(client):
             label_level2tolevel1_dict[i['label_id']] = i['parent_id']
 
         
-    label_level_df = apply_if_col_not_exists(label_level_df,'label_level1_id',lambda row: label_level2tolevel1_dict.get(row['label_id'],row['label_id']))
+    label_level_df = apply_col(label_level_df,'label_level1_id',lambda row: label_level2tolevel1_dict.get(row['label_id'],row['label_id']))
     print(label_level_df)
     return label_level_df
 
@@ -83,9 +57,9 @@ def get_user_wide(client):
     # user_note_interaction_df = user_note_interaction_df.merge(note_label_df,on='note_id',how='left')
     # print(user_note_interaction_df)
 
-    # grouped_user_note_interaction_df=simple_group_agg(user_note_interaction_df,['user_id','note_id'],'ope_type',agg_funcs=['count','sum'],by='count')
+    # grouped_user_note_interaction_df=group_agg(user_note_interaction_df,['user_id','note_id'],'ope_type',agg_funcs=['count','sum'],by='count')
     # print(grouped_user_note_interaction_df)
-    # print(simple_group_agg(user_note_interaction_df,'label_level1_id','ope_type',agg_funcs=['count','sum'],by='count'))
+    # print(group_agg(user_note_interaction_df,'label_level1_id','ope_type',agg_funcs=['count','sum'],by='count'))
 
     return user_df
 
@@ -117,26 +91,26 @@ def get_orig_data(recum=False ):
         total_df = pd.read_pickle(final_path)
 
     print('start get extend_data')
-    total_df = apply_if_col_not_exists(total_df,'来源类型',lambda row: get_ext1_name(row['ext1_x']))
-    total_df = apply_if_col_not_exists(total_df,'播放来源',lambda row: get_ext2_name(row['ext2_x']))
-    total_df = apply_if_col_not_exists(total_df,'设备类型',lambda row: get_device_type_name(row['device_type']))
+    total_df = apply_col(total_df,'来源类型',lambda row: get_ext1_name(row['ext1_x']))
+    total_df = apply_col(total_df,'播放来源',lambda row: get_ext2_name(row['ext2_x']))
+    total_df = apply_col(total_df,'设备类型',lambda row: get_device_type_name(row['device_type']))
     convert_datetime = convert_datetime_to_date()
-    total_df = apply_if_col_not_exists(total_df,'date',lambda row: convert_datetime(row['create_time_x']))
+    total_df = apply_col(total_df,'date',lambda row: convert_datetime(row['create_time_x']))
     def get_public_release_days(row):
         try:
             ret = datetime.now().date() -  convert_datetime(row['release_time'])
         except:
             return 100
         return int(ret.days)
-    total_df = apply_if_col_not_exists(total_df,'video_public_release_days',get_public_release_days )
+    total_df = apply_col(total_df,'video_public_release_days',get_public_release_days )
 
 
-    print(simple_group_agg(total_df,'来源类型'))
-    print(simple_group_agg(total_df,'播放来源'))
-    print(simple_group_agg(total_df,'设备类型'))
-    print(simple_group_agg(total_df,'date',by=None))
-    print(simple_group_agg(total_df,'temporary_id',by='count'))
-    print(simple_group_agg(total_df,['temporary_id','date'],by='count'))
+    print(group_agg(total_df,'来源类型'))
+    print(group_agg(total_df,'播放来源'))
+    print(group_agg(total_df,'设备类型'))
+    print(group_agg(total_df,'date',by=None))
+    print(group_agg(total_df,'temporary_id',by='count'))
+    print(group_agg(total_df,['temporary_id','date'],by='count'))
     print(list(total_df.columns))
     total_df.to_pickle(final_path)
     total_df = total_df[['note_type','favorite_number',
@@ -149,32 +123,32 @@ def get_orig_data(recum=False ):
 
     print(total_df)
     total_df['label'] = total_df['log_type'] -1
-    note_history_df =simple_group_agg(total_df,'note_id',by='count').reset_index()
+    note_history_df =group_agg(total_df,'note_id',by='count').reset_index()
     print(note_history_df)
     total_df = total_df.merge(note_history_df,on='note_id',how='left')
     print(total_df.columns)
     print(total_df)
     print(total_df[['play_duration','note_duration']][total_df['play_duration'] > total_df['note_duration']])
-    total_df = apply_if_col_not_exists(total_df,'video_play_percent',lambda row: 0.0 if  row.get('note_duration',86400) == 0 else row.get('play_duration',0)/row.get('note_duration',86400))
-    note_history_df =simple_group_agg(total_df,'note_id',label_col='note_duration').reset_index()
+    total_df = apply_col(total_df,'video_play_percent',lambda row: 0.0 if  row.get('note_duration',86400) == 0 else row.get('play_duration',0)/row.get('note_duration',86400))
+    note_history_df =group_agg(total_df,'note_id',label_col='note_duration').reset_index()
     print(note_history_df)
-    note_history_df =simple_group_agg(total_df,'note_id',label_col='video_play_percent',by='count').reset_index()
+    note_history_df =group_agg(total_df,'note_id',label_col='video_play_percent',by='count').reset_index()
     print(note_history_df)
     total_df = total_df.merge(note_history_df,on='note_id',how='left')
     print(total_df.columns)
     print(total_df)
 
 
-    user_histroy_df =simple_group_agg(total_df,['user_id','date'],by='count').reset_index()
+    user_histroy_df =group_agg(total_df,['user_id','date'],by='count').reset_index()
     print(user_histroy_df)
     user_histroy_df_7d = user_histroy_df[user_histroy_df.date > datetime.now().date() - timedelta(days=7)]
-    user_active_7d_df = simple_group_agg(user_histroy_df_7d,'user_id',label_col='user_id_date_label_count', by='count').reset_index()
+    user_active_7d_df = group_agg(user_histroy_df_7d,'user_id',label_col='user_id_date_label_count', by='count').reset_index()
     user_active_7d_df = user_active_7d_df[['user_id','user_id_user_id_date_label_count_count']]
     user_active_7d_df = user_active_7d_df.rename(columns={'user_id_user_id_date_label_count_count':'user_active_date_7d'})
     print(user_active_7d_df)
 
     user_histroy_df_14d = user_histroy_df[user_histroy_df.date > datetime.now().date() - timedelta(days=14)]
-    user_active_14d_df = simple_group_agg(user_histroy_df_14d,'user_id',label_col='user_id_date_label_count', by='count').reset_index()
+    user_active_14d_df = group_agg(user_histroy_df_14d,'user_id',label_col='user_id_date_label_count', by='count').reset_index()
     user_active_14d_df = user_active_14d_df[['user_id','user_id_user_id_date_label_count_count']]
     user_active_14d_df = user_active_14d_df.rename(columns={'user_id_user_id_date_label_count_count':'user_active_date_14d'})
     print(user_active_14d_df)
@@ -185,13 +159,13 @@ def get_orig_data(recum=False ):
     print(total_df.columns)
     print(total_df)
 
-    user_histroy_df =simple_group_agg(total_df,['user_id','label_level1_id'],by='count').reset_index()
+    user_histroy_df =group_agg(total_df,['user_id','label_level1_id'],by='count').reset_index()
     user_histroy_df.sort_values(['user_id','user_id_label_level1_id_label_count'],ascending=[1,0],inplace=True)
     print(user_histroy_df)
     user_histroy_df = user_histroy_df.groupby(['user_id']).head(1)
 
     print(user_histroy_df)
-    user_label_count_df =  simple_group_agg(user_histroy_df,['user_id'],label_col='user_id_label_level1_id_label_count',by='count',agg_funcs={
+    user_label_count_df =  group_agg(user_histroy_df,['user_id'],label_col='user_id_label_level1_id_label_count',by='count',agg_funcs={
         'count':    pd.NamedAgg(column="user_id_label_level1_id_label_count", aggfunc="count"),
        'topn_concat': pd.NamedAgg(column="user_id_label_level1_id_label_count", aggfunc=lambda row: "_".join([str(i) for i in list(row.unique())])) 
     }).reset_index()
@@ -202,7 +176,7 @@ def get_orig_data(recum=False ):
     total_df = total_df.merge(user_label_count_df,on='user_id',how='left')
     total_df['user_clk_label_topn'] = total_df['user_clk_label_topn'].fillna(0)
 
-    total_df = apply_if_col_not_exists(total_df,'age',lambda row: -1 if  row.get('birthday',None) is None or str(row.get('birthday',None)).lower() == 'nan'  else  int((datetime.now().date() - row.get('birthday')).days / 356) ,overwrite=True)
+    total_df = apply_col(total_df,'age',lambda row: -1 if  row.get('birthday',None) is None or str(row.get('birthday',None)).lower() == 'nan'  else  int((datetime.now().date() - row.get('birthday')).days / 356) ,overwrite=True)
     print(total_df.columns)
     print(total_df)
     print(total_df[total_df.label==1])

@@ -2,7 +2,7 @@ import time
 import pandas as pd
 from sklearn.utils import shuffle as shuffle
 
-from pyspark.ml import Pipeline
+from pyspark.ml import Pipeline,PipelineModel
 from pyspark.ml.classification import LogisticRegression
 from pyspark.ml.feature import HashingTF, Tokenizer, RegexTokenizer,StringIndexer,VectorIndexer, StandardScaler,VectorAssembler,OneHotEncoder
 from pyspark.mllib.evaluation import BinaryClassificationMetrics
@@ -36,46 +36,43 @@ class SparkBinaryClassificationTrainer():
         test_df = df[-test_split_number:]
         return train_df,test_df
 
+
     
-    def cate_feature_pipline(self,inputCol):
-        si = StringIndexer(inputCol=inputCol,outputCol=f'{inputCol}_index',handleInvalid='keep')
-        oh = OneHotEncoder(inputCol=f'{inputCol}_index',outputCol=f'{inputCol}_onehot_vec')
-        return [si,oh],f'{inputCol}_onehot_vec'
+
 
     def train(self,df,cate_features,number_features,keep_list,nagtive_sample=2,test_split_mode='last',test_split_number=10000,true_value=1,label='label'):
         df = df[cate_features + number_features+ keep_list +  [label]]
         sampled_df , sample_rate = self.negtive_sample(df,nagtive_sample,true_value)
         train_df,test_df  = self.data_split(sampled_df,test_split_number)
-        print(sampled_df)
-        print(train_df)
-        print(test_df)
 
         training = self.spark.createDataFrame(train_df)
         print(f'training count:{len(train_df)}')
         print(f'test count:{len(test_df)}')
 
-        cate_pipline_stages =[]
-        cate_output_cols = []
+        cate_string_index_output_cols = []
+        cate_onehot_output_cols = []
         for i in cate_features:
-            pipline_stages,output_col =  self.cate_feature_pipline(i)
-            cate_pipline_stages.extend(pipline_stages)
-            cate_output_cols.append(output_col)
+            cate_string_index_output_cols.append(f'{i}_index')
+            cate_onehot_output_cols.append(f'{i}_onehot_vec')
 
+        si = StringIndexer(inputCols=cate_features,outputCols=cate_string_index_output_cols,handleInvalid='keep')
+        oh = OneHotEncoder(inputCols=cate_string_index_output_cols,outputCols=cate_onehot_output_cols,handleInvalid='keep')
 
         number_assembler = VectorAssembler(
             inputCols=number_features,
             outputCol="number_features")
         scaler = StandardScaler(inputCol="number_features", outputCol="number_features_scaled",
                                 withStd=True, withMean=False)
-
         assembler = VectorAssembler(
-            inputCols=cate_output_cols + ['number_features_scaled'],
+            inputCols=cate_onehot_output_cols + ['number_features_scaled'],
             outputCol="features")
         lr = LogisticRegression(maxIter=10, regParam=0.001)
 
-        pipeline = Pipeline(stages=cate_pipline_stages + [ number_assembler , scaler , assembler,lr])
+        pipeline = Pipeline(stages=  [si,oh ,number_assembler , scaler , assembler,lr])
 
         model = pipeline.fit(training)
+        model.write().overwrite().save("model/spark-logistic-regression-model")
+
         lrmodel = model.stages[-1]
         # Prepare test documents, which are unlabeled (id, text) tuples.
         test = self.spark.createDataFrame(test_df)
