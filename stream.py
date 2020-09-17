@@ -40,7 +40,7 @@ userSchema = StructType().add("note_type", "string") \
 #     .format("socket") \
 #     .option("host", "localhost") \
 #     .option("port", 9999) \
-#     .load()
+#     .load()x
 lines = spark\
     .readStream \
     .schema(userSchema) \
@@ -48,42 +48,19 @@ lines = spark\
 
 sameModel = PipelineModel.load('model/spark-logistic-regression-model')
 probability = sameModel.transform(lines)
-
-# Split the lines into words
-# words = lines.select(
-#    explode(
-#        split(lines.value, " ")
-#    ).alias("word")
-# )
-query =probability.writeStream \
-    .format("console") \
-    .start()
-# Generate running word count
-#wordCounts = lines.groupBy("note_type").count()
-# result = probability.groupBy('user_id').agg(f.collect_list('probability').alias('probability_list'),
-#                                  f.collect_list('note_id').alias('note_id_list')
-#                             )
+def agg_user(df,batch_id):
+    pdf = df.toPandas()
+    pdf['probability'] = pdf['probability'].apply(lambda row: row[1])
+    pdf =pdf.sort_values(['user_id','probability'],ascending=[1,0])
+    pdf = pdf.drop_duplicates(['user_id','note_id'],keep='first')
+    pdf = pdf.groupby('user_id').head(3)
+    pdf = pdf.groupby('user_id').agg(top=('note_id',lambda row: list(row.unique())))
+    print(pdf)
 
 
-# result = ordered_probability.groupBy('user_id').head(20).writeStream \
-#     .format("console") \
-#     .start()
 
-# def top_id(probability_list,note_id_list):
-#     ziped_list =  zip(probability_list, note_id_list)
-#     sorted_list =sorted(ziped_list, key=lambda x: float(x[0].toArray().tolist()[1]),reverse=True)
-#     return [ note_id for probability,note_id in  sorted_list[:10]]
-
-# top_id_udf = f.UserDefinedFunction(top_id, returnType=ArrayType(IntegerType()))
+query = probability.select('user_id','note_id','probability').writeStream.foreachBatch(agg_user).start()
 
 
-# #
-# # top_id_udf = udf(top_id, ArrayType(DoubleType()),ArrayType(IntegerType()))
-
-# query = result.select("user_id",  top_id_udf(result['probability_list'],result['note_id_list']))\
-#     .writeStream \
-#     .outputMode('complete') \
-#     .format("console") \
-#     .start()
 
 query.awaitTermination()
