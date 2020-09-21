@@ -37,6 +37,13 @@ class SparkBinaryClassificationTrainer():
         return train_df,test_df
 
 
+    def get_cat_features(self,cate_col):
+        string_index_col = f'{cate_col}_index'
+        onehot_col =f'{cate_col}_onehot_vec'
+        si = StringIndexer(inputCol=cate_col,outputCol=string_index_col,handleInvalid='keep')
+        oh = OneHotEncoder(inputCol=string_index_col,outputCol=onehot_col)
+        return [si,oh],onehot_col
+
     
 
 
@@ -49,14 +56,12 @@ class SparkBinaryClassificationTrainer():
         print(f'training count:{len(train_df)}')
         print(f'test count:{len(test_df)}')
 
-        cate_string_index_output_cols = []
+        cate_pipline = []
         cate_onehot_output_cols = []
         for i in cate_features:
-            cate_string_index_output_cols.append(f'{i}_index')
-            cate_onehot_output_cols.append(f'{i}_onehot_vec')
-
-        si = StringIndexer(inputCols=cate_features,outputCols=cate_string_index_output_cols,handleInvalid='keep')
-        oh = OneHotEncoder(inputCols=cate_string_index_output_cols,outputCols=cate_onehot_output_cols,handleInvalid='keep')
+            cat_pipline_item,output_col = self.get_cat_features(i)
+            cate_pipline.extend(cat_pipline_item)
+            cate_onehot_output_cols.append(output_col)
 
         number_assembler = VectorAssembler(
             inputCols=number_features,
@@ -68,7 +73,7 @@ class SparkBinaryClassificationTrainer():
             outputCol="features")
         lr = LogisticRegression(maxIter=10, regParam=0.001)
 
-        pipeline = Pipeline(stages=  [si,oh ,number_assembler , scaler , assembler,lr])
+        pipeline = Pipeline(stages=  cate_pipline + [number_assembler , scaler , assembler,lr])
 
         model = pipeline.fit(training)
         model.write().overwrite().save("model/spark-logistic-regression-model")
