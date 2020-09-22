@@ -29,11 +29,11 @@ cate_features = [
                 ###
                 # 用户侧
                 #
-                # 'user_clk_label_topn',
-                # 'user_active_date_7d',
-                # 'gender',
-                # 'age',
-                # 'user_active_date_14d',
+                'user_clk_label_topn',
+                'user_active_date_7d',
+                'gender',
+                'age',
+                'user_active_date_14d',
                 ###
                 # 上下文
                 #
@@ -42,22 +42,18 @@ number_features = [
                 ###
                 # 商品侧
                 #
-                # 'play_number',
+                'play_number',
                 'praise_number',
-                # 'share_number',
-                # 'comment_number_x',
-                # 'favorite_number',
-                # 'video_public_release_days',
-
+                'share_number',
+                'comment_number_x',
+                'favorite_number',
+                'video_public_release_days',
 ]
 keep_list =['user_id','note_id']
 
 
 
 trainer =  SklearnBinaryClassificationTrainer('model')
-#trainer.train(df,cate_features,number_features,keep_list)
-trainer.predict(df,cate_features,number_features)
-
-
-
+trainer.train(df,cate_features,number_features,keep_list)
+#trainer.predict(df,cate_features,number_features)
 

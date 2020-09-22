@@ -26,11 +26,11 @@ cate_features = [
                 ###
                 # 用户侧
                 #
-                # 'user_clk_label_topn',
-                # 'user_active_date_7d',
-                # 'gender',
-                # 'age',
-                # 'user_active_date_14d',
+                'user_clk_label_topn',
+                'user_active_date_7d',
+                'gender',
+                'age',
+                'user_active_date_14d',
                 ###
                 # 上下文
                 #
@@ -39,13 +39,12 @@ number_features = [
                 ###
                 # 商品侧
                 #
-                # 'play_number',
+                'play_number',
                 'praise_number',
-                # 'share_number',
-                # 'comment_number_x',
-                # 'favorite_number',
-                # 'video_public_release_days',
-
+                'share_number',
+                'comment_number_x',
+                'favorite_number',
+                'video_public_release_days',
 ]
 
 spark = SparkSession \
@@ -109,27 +108,20 @@ def process(df,batch_id):
         for user_id,redis_result in ret:
             try:
                 user_row =  json.loads(redis_result)
+                if isinstance(user_row,list):
+                    user_row = user_row[0]
                 user_row['user_id'] = user_id
                 predict_data.append(user_row)
             except Exception  as e:
                 print(e)
         df =  pd.DataFrame(predict_data)
-        df = model.predict(df,cate_features,number_features)
-        print(df)
+        pdf = model.predict(df,cate_features,number_features)
+        pdf =pdf.sort_values(['user_id','predict1'],ascending=[1,0])
+        pdf = pdf.drop_duplicates(['user_id','note_id'],keep='first')
+        pdf = pdf.groupby('user_id').head(3)
+        pdf = pdf.groupby('user_id').agg(top=('note_id',lambda row: list(row.unique())))
+        print(pdf)
     
-    # def get_sort_result(iterator): 
-    #         probability_result =[]
-    #         for i in iterator:
-    #             value = i.asDict()
-    #             probability_result.append(value)
-    #         pdf = pd.DataFrame(probability_result)
-    #         pdf['probability'] = pdf['probability'].apply(lambda row: row[1])
-    #         pdf =pdf.sort_values(['user_id','probability'],ascending=[1,0])
-    #         pdf = pdf.drop_duplicates(['user_id','note_id'],keep='first')
-    #         pdf = pdf.groupby('user_id').head(3)
-    #         pdf = pdf.groupby('user_id').agg(top=('note_id',lambda row: list(row.unique())))
-    #         print(pdf)
-        
     redis_rdd = df.rdd.foreachPartition(get_user_by_redis)
   
     print('end batch')
