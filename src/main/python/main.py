@@ -1,7 +1,8 @@
 import json
 
 from etl import get_orig_data
-from trainer.spark_trainer import SparkBinaryClassificationTrainer
+
+from kimi_common.ml.spark import SparkBinaryClassificationTrainer
 
 
 df = get_orig_data(recum=False)
@@ -49,8 +50,9 @@ number_features = [
                 # 'video_public_release_days',
 
 ]
-keep_list =[]
+keep_list =['user_id','note_id']
 
 
 trainer =  SparkBinaryClassificationTrainer()
 trainer.train(df,cate_features,number_features,keep_list)
+

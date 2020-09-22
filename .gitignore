@@ -1,3 +1,6 @@
 data
 *.pyc
 model
+recommender.iml
+.idea/
+src/main/python/spark-logistic-regression-model
