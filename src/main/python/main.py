@@ -2,7 +2,7 @@ import json
 
 from etl import get_orig_data
 
-from kimi_common.ml.spark import SparkBinaryClassificationTrainer
+from kimi_common.ml.sklearn import SklearnBinaryClassificationTrainer
 
 
 df = get_orig_data(recum=False)
@@ -53,6 +53,11 @@ number_features = [
 keep_list =['user_id','note_id']
 
 
-trainer =  SparkBinaryClassificationTrainer()
-trainer.train(df,cate_features,number_features,keep_list)
+
+trainer =  SklearnBinaryClassificationTrainer('model')
+#trainer.train(df,cate_features,number_features,keep_list)
+trainer.predict(df,cate_features,number_features)
+
+
+
 

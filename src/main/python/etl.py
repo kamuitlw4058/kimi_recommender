@@ -198,7 +198,6 @@ def get_orig_data(recum=False ):
     })
     total_df.to_pickle(output_path)
 
-
     return total_df
 
 if __name__ == '__main__':
