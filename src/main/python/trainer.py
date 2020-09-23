@@ -53,7 +53,7 @@ keep_list =['user_id','note_id']
 
 
 
-trainer =  SklearnBinaryClassificationTrainer('model')
-trainer.train(df,cate_features,number_features,keep_list)
+trainer =  SklearnBinaryClassificationTrainer('model',cate_features=cate_features,number_features=number_features)
+trainer.train(df)
 #trainer.predict(df,cate_features,number_features)
 

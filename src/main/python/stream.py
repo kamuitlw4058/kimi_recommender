@@ -1,5 +1,6 @@
 import json
 import redis
+import pandas as pd
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import explode
@@ -10,131 +11,123 @@ from pyspark.sql import Window
 from pyspark.sql.functions import row_number,from_json,explode
 from pyspark.sql.functions import desc,udf
 from pyspark.sql import functions as f
+from pyspark.sql import Row
+
 from kimi_common.kv.redis import RedisClient
+from kimi_common.ml.sklearn import SklearnBinaryClassificationTrainer
 
-
-
+cate_features = [
+                ###
+                # 商品侧
+                #
+                'note_type',
+                'real_source',
+                'label_level1_id',
+                ###
+                # 用户侧
+                #
+                'user_clk_label_topn',
+                'user_active_date_7d',
+                'gender',
+                'age',
+                'user_active_date_14d',
+                ###
+                # 上下文
+                #
+                ]
+number_features = [
+                ###
+                # 商品侧
+                #
+                'play_number',
+                'praise_number',
+                'share_number',
+                'comment_number_x',
+                'favorite_number',
+                'video_public_release_days',
+]
 
 spark = SparkSession \
     .builder \
     .appName("StructuredNetworkWordCount") \
     .config("spark.default.parallelism", "800") \
     .getOrCreate()
-    
-    #.config("spark.driver.extraJavaOptions", "-Xms256m -Xmx4069m")\
 
-userSchema = StructType().add("note_type", "string") \
-                        .add('real_source','string') \
-                        .add('label_level1_id','string') \
-                        .add('user_clk_label_topn','string') \
-                        .add('user_active_date_7d','string') \
-                        .add('gender','string') \
-                        .add('age','string') \
-                        .add('user_active_date_14d','string') \
-                        .add('play_number','double') \
-                        .add('praise_number','double') \
-                        .add('share_number','double') \
-                        .add('comment_number_x','double') \
-                        .add('favorite_number','double') \
-                        .add('video_public_release_days','double') \
-                        .add('note_id','integer') \
-                        .add('user_id','integer') 
+def quiet_logs( sc ):
+  logger = sc._jvm.org.apache.log4j
+  logger.LogManager.getLogger("org"). setLevel( logger.Level.ERROR )
+  logger.LogManager.getLogger("kafka").setLevel( logger.Level.ERROR )
 
+quiet_logs(spark.sparkContext)
 
-# Create DataFrame representing the stream of input lines from connection to localhost:9999
-# lines = spark \
-#     .readStream \
-#     .format("socket") \
-#     .option("host", "localhost") \
-#     .option("port", 9999) \
-#     .load()x
-# lines = spark\
-#     .readStream \
-#     .schema(userSchema) \
-#     .json("data/json")
-#     spark
 df =  spark.readStream \
     .format("kafka") \
     .option("kafka.bootstrap.servers", "10.15.0.106:9092") \
+    .option('auto.offset.reset',True) \
+    .option('enable.auto.commit',True) \
+    .option('minPartitions',8)\
     .option("subscribe", "test") \
-    .load() 
-    #.option('spark.sql.streaming.forceDeleteTempCheckpointLocation',True)\
-    #.option('kafkaConsumer.pollTimeoutMs',5000)\
-        #
-#df= df .selectExpr("CAST(value AS STRING)")
+    .load() \
+    .selectExpr("CAST(value AS STRING) as value")
 
 
+def getSparkSessionInstance(sparkConf):
+    if ("sparkSessionSingletonInstance" not in globals()):
+        globals()["sparkSessionSingletonInstance"] = SparkSession \
+            .builder \
+            .config(conf=sparkConf) \
+            .getOrCreate()
+    return globals()["sparkSessionSingletonInstance"]
 
-pool = redis.ConnectionPool(host='10.15.0.106', port=63790, db=0)
+model =  SklearnBinaryClassificationTrainer('model')
 
-def get_by_redis(user_id):
-    redis_client = redis.StrictRedis(connection_pool=pool)
-    #print(json.loads(redis_client.get(f'user:{user_id}')))
-    return json.loads(redis_client.get(f'user:{user_id}'))
+def getSparkSessionInstance(sparkConf):
+    if ("sparkSessionSingletonInstance" not in globals()):
+        globals()["sparkSessionSingletonInstance"] = SparkSession \
+            .builder \
+            .config(conf=sparkConf) \
+            .getOrCreate()
+    return globals()["sparkSessionSingletonInstance"]
+
+def process(df,batch_id):
+    print(f'batch_id :{batch_id}')
+    def get_user_id(value):
+        return value['user_id']
+
+    def get_user_by_redis(iterator): 
+        user_redis_key_list =[]
+        for i in iterator:
+            value = json.loads(i.asDict().get('value'))
+            user_id = value.get('user_id',None)
+            if user_id is not None:
+                user_redis_key_list.append(f'user:{user_id}')
+
+        redis_client = RedisClient('10.15.0.106',63790)
+        ret = redis_client.batch_get(user_redis_key_list)
+        predict_data =[]
+        for user_id,redis_result in ret:
+            try:
+                user_row =  json.loads(redis_result)
+                if isinstance(user_row,list):
+                    user_row = user_row[0]
+                user_row['user_id'] = user_id
+                predict_data.append(user_row)
+            except Exception  as e:
+                print(e)
+        df =  pd.DataFrame(predict_data)
+        pdf = model.predict(df,cate_features,number_features)
+        pdf =pdf.sort_values(['user_id','predict1'],ascending=[1,0])
+        pdf = pdf.drop_duplicates(['user_id','note_id'],keep='first')
+        pdf = pdf.groupby('user_id').head(3)
+        pdf = pdf.groupby('user_id').agg(top=('note_id',lambda row: list(row.unique())))
+        print(pdf)
     
-# userSchema
-
-# add("note_type", "string") \
-# .add('real_source','string') \
-# .add('label_level1_id','string') \
-# .add('user_clk_label_topn','string') \
-# .add('user_active_date_7d','string') \
-# .add('gender','string') \
-# .add('age','string') \
-# .add('c','string') \
-# .add('play_number','double') \
-# .add('praise_number','double') \
-# .add('share_number','double') \
-# .add('comment_number_x','double') \
-# .add('favorite_number','double') \
-# .add('video_public_release_days','double') \
-# .add('note_id','integer') \
-# .add('user_id','integer') 
-
-get_user_by_redis = udf(get_by_redis, returnType=StructType([
-    StructField("note_type", DoubleType()),
-    #StructField("favorite_number", DoubleType()),
-    StructField("real_source", DoubleType()),
-    StructField("label_level1_id", DoubleType()),
-     StructField("praise_number", DoubleType()),
-    StructField("note_id", IntegerType()),
-    # StructField("user_clk_label_topn", DoubleType()),
-    # StructField("user_active_date_7d", DoubleType()),
-    # StructField("gender", StringType()),
-    # StructField("age", StringType()),
-    # StructField("user_active_date_14d", DoubleType())
-]))
-
-# get_user_by_redis = udf(get_by_redis, returnType=userSchema)
-
-schema = StructType([StructField("user_id", StringType())])
-df = df.select(from_json( df.value.cast('string'), schema).alias("json"))
-df = df.withColumn('user_id', df["json"].getItem('user_id'))
-df = df.withColumn("user_features", get_user_by_redis(df["user_id"]))
-df = df.withColumn('note_type', df["user_features"].getItem('note_type'))
-df = df.withColumn('real_source', df["user_features"].getItem('real_source'))
-df = df.withColumn('label_level1_id', df["user_features"].getItem('label_level1_id'))
-df = df.withColumn('praise_number', df["user_features"].getItem('praise_number'))
-df = df.withColumn('note_id', df["user_features"].getItem('note_id'))
-
-#df = df.withColumn('test2', df["json"].getItem('test2'))
+    redis_rdd = df.rdd.foreachPartition(get_user_by_redis)
+  
+    print('end batch')
+    
 
 
-sameModel = PipelineModel.load('model/spark-logistic-regression-model')
-probability = sameModel.transform(df)
-def agg_user(df,batch_id):
-    pdf = df.toPandas()
-    pdf['probability'] = pdf['probability'].apply(lambda row: row[1])
-    pdf =pdf.sort_values(['user_id','probability'],ascending=[1,0])
-    pdf = pdf.drop_duplicates(['user_id','note_id'],keep='first')
-    pdf = pdf.groupby('user_id').head(3)
-    pdf = pdf.groupby('user_id').agg(top=('note_id',lambda row: list(row.unique())))
-    print(pdf)
+query = df.writeStream.foreachBatch(process).trigger(processingTime='500 millisecond').start()
 
-result = probability
-
-query = result.select('user_id','note_id','probability').writeStream.format('console').start()
-# query.awaitTermination()
-#query = result.select('user_id','note_id','probability').writeStream.foreachBatch(agg_user).start()
-#query = result.select('user_id','probability').writeStream.foreachBatch(agg_user).start()
 query.awaitTermination()
