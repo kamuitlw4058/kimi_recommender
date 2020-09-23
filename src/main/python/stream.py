@@ -71,28 +71,11 @@ df =  spark.readStream \
     .selectExpr("CAST(value AS STRING) as value")
 
 
-def getSparkSessionInstance(sparkConf):
-    if ("sparkSessionSingletonInstance" not in globals()):
-        globals()["sparkSessionSingletonInstance"] = SparkSession \
-            .builder \
-            .config(conf=sparkConf) \
-            .getOrCreate()
-    return globals()["sparkSessionSingletonInstance"]
-
-model =  SklearnBinaryClassificationTrainer('model')
-
-def getSparkSessionInstance(sparkConf):
-    if ("sparkSessionSingletonInstance" not in globals()):
-        globals()["sparkSessionSingletonInstance"] = SparkSession \
-            .builder \
-            .config(conf=sparkConf) \
-            .getOrCreate()
-    return globals()["sparkSessionSingletonInstance"]
-
 def process(df,batch_id):
     print(f'batch_id :{batch_id}')
-    def get_user_id(value):
-        return value['user_id']
+    def get_user_id_from_key(user_id_key):
+        return str(user_id_key).split(':')[1]
+
 
     def get_user_by_redis(iterator): 
         user_redis_key_list =[]
@@ -105,24 +88,31 @@ def process(df,batch_id):
         redis_client = RedisClient('10.15.0.106',63790)
         ret = redis_client.batch_get(user_redis_key_list)
         predict_data =[]
-        for user_id,redis_result in ret:
+        for user_id_key,redis_result in ret:
             try:
                 user_row =  json.loads(redis_result)
                 if isinstance(user_row,list):
                     user_row = user_row[0]
-                user_row['user_id'] = user_id
+                user_row['user_id'] = get_user_id_from_key(user_id_key)
                 predict_data.append(user_row)
             except Exception  as e:
                 print(e)
         df =  pd.DataFrame(predict_data)
-        pdf = model.predict(df,cate_features,number_features)
-        pdf =pdf.sort_values(['user_id','predict1'],ascending=[1,0])
+        pdf = model.predict(df)
+        pdf = pdf.sort_values(['user_id','predict1'],ascending=[1,0])
         pdf = pdf.drop_duplicates(['user_id','note_id'],keep='first')
         pdf = pdf.groupby('user_id').head(3)
         pdf = pdf.groupby('user_id').agg(top=('note_id',lambda row: list(row.unique())))
-        print(pdf)
+        user_reco_key_list =  []
+        user_reco_value_list = []
+        user_topn_list = pdf.reset_index().to_dict('records')
+        for i in user_topn_list:
+            user_id = i['user_id']
+            user_reco_key_list.append(f'user:reco:{user_id}')
+            user_reco_value_list.append( [int(i) for i in  i['top']])
+        redis_client.batch_set(user_reco_key_list,user_reco_value_list)
     
-    redis_rdd = df.rdd.foreachPartition(get_user_by_redis)
+    df.rdd.foreachPartition(get_user_by_redis)
   
     print('end batch')
     
