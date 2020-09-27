@@ -60,9 +60,10 @@ def quiet_logs( sc ):
 
 quiet_logs(spark.sparkContext)
 
+model = SklearnBinaryClassificationTrainer('model',cate_features,number_features)
 df =  spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", "10.15.0.106:9092") \
+    .option("kafka.bootstrap.servers", "47.103.86.120:9092") \
     .option('auto.offset.reset',True) \
     .option('enable.auto.commit',True) \
     .option('minPartitions',8)\
@@ -78,15 +79,17 @@ def process(df,batch_id):
 
 
     def get_user_by_redis(iterator): 
-        user_redis_key_list =[]
+        # user_redis_key_list =[]
+        input_rows= []
         for i in iterator:
             value = json.loads(i.asDict().get('value'))
-            user_id = value.get('user_id',None)
-            if user_id is not None:
-                user_redis_key_list.append(f'user:{user_id}')
+            input_rows.append(value)
 
-        redis_client = RedisClient('10.15.0.106',63790)
-        ret = redis_client.batch_get(user_redis_key_list)
+        input_df = pd.DataFrame(input_rows)
+        input_df['user_id_redis'] = input_df['user_id'].apply(lambda  row: 'user:' + str(row))
+
+        redis_client = RedisClient('10.15.1.177',63790)
+        ret = redis_client.batch_get(list(input_df['user_id_redis'].values))
         predict_data =[]
         for user_id_key,redis_result in ret:
             try:
