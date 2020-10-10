@@ -1,3 +1,6 @@
+## common库地址
+https://gitlab.xiaoxiangyoupin.com:9443/wangcenhan/python_common
+
 ## 启动路径
 * src/main/python/trainer.py 用于模型训练
 * src/main/python/stream.py 用于启动模型服务
