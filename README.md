@@ -1,3 +1,6 @@
+## 数据基础的ETL流程在
+src/main/python/etl.py
+
 ## common库地址
 https://gitlab.xiaoxiangyoupin.com:9443/wangcenhan/python_common
 
